@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+    <title>Bootstrap 101 Template</title>
+
+    <!-- Latest compiled and minified CSS -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+
+    <!-- Optional theme -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
+
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+    <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
+    <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
+    <script src="https://unpkg.com/axios@0.16.1/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/rxjs/4.1.0/rx.all.min.js"></script>
+    <script src="https://unpkg.com/moment@2.18.1/min/moment.min.js"></script>
+    <style>
+        .male_avg {
+            color: #245bff;
+        }
+        .female_avg {
+            color: #ff0084;
+        }
+        ul {
+            list-style: none;
+            padding: 0;
+        }
+
+    </style>
+</head>
+<body>
+
+
+<div class="container">
+
+    <h3>Search for a movie to find out age averages</h3>
+    <p></p>
+    <div class="row">
+        <div class="col-xs-6 col-lg-4">
+            <form>
+                <input id="search" type="text" autofocus placeholder="Search movies">
+            </form>
+            <ul>
+            </ul>
+        </div>
+        <div id="movie_container" class="col-xs-12 col-sm-6 col-lg-8">
+            <div id="movie">
+
+            </div>
+        </div>
+    </div>
+
+</div> <!-- /container -->
+
+
+<script type="text/javascript">
+    var API_KEY = "d9ac655b6ed549002013c5b4262dfa13";
+
+    function getMovieCast(movie) {
+        return axios.get('http://api.themoviedb.org/3/movie/' + movie.id + '/credits?api_key=' + API_KEY)
+            .then(function (response) {
+                return response.data.cast;
+            });
+    }
+    function getPerson(cast) {
+        return axios.get('http://api.themoviedb.org/3/person/' + cast.id + '?api_key=' + API_KEY)
+            .then(function (response) {
+                return response.data;
+            });
+    }
+
+    var input = document.querySelector('input');
+    var inputStream = Rx.Observable.fromEvent(input, 'input');
+
+    var ul = document.querySelector('ul');
+
+    var responseStream = inputStream
+    //                .debounceTime(500)
+        .map(function(e){
+            return e.target.value;
+        })
+        .filter(function(value){
+            return !value | value.length > 2;
+        })
+        .distinctUntilChanged()
+        .flatMap(function(value) {
+            return value ? Rx.Observable.fromPromise(axios.get("https://api.themoviedb.org/3/search/movie?api_key=" + API_KEY + "&query=" + value)) : Rx.Observable.of({data: []});
+        });
+
+    responseStream.subscribe(function(resp) {
+        var movies = "";
+        Rx.Observable.from(resp.data.results)
+            .map(function (movie) {
+                return movies += "<li data-movie='" + movie.id + "'>" + movie.title + "</li>";
+            })
+            .subscribe();
+        ul.innerHTML = movies;
+    });
+
+    ul.addEventListener("click", function(event) {
+        axios.get('http://api.themoviedb.org/3/movie/' + event.target.dataset.movie + '?api_key=' + API_KEY)
+            .then(function (response) {
+                var movie_col = document.getElementById('movie_container');
+                while (movie_col.firstChild) {
+                    movie_col.removeChild(movie_col.firstChild);
+                }
+                var movie_div = document.createElement('div');
+                var movie_title = document.createElement('h2');
+                movie_title.textContent = response.data.title;
+                var movie_poster = document.createElement('img');
+                movie_poster.classname = "thumbnail";
+                movie_poster.src = "https://image.tmdb.org/t/p/w320/" + response.data.poster_path;
+                movie_div.appendChild(movie_title);
+                movie_div.appendChild(movie_poster);
+                movie_col.appendChild(movie_div);
+
+                var movie_cast = Rx.Observable
+                    .of(response.data)
+                    .flatMap(function(movie){
+                        return Rx.Observable.fromPromise(getMovieCast(movie));
+                    })
+                    .flatMap(function(cast){
+                        return Rx.Observable.from(cast.slice(0, 10));
+                    })
+                    .flatMap(function(cast){
+                        return Rx.Observable.fromPromise(getPerson(cast));
+                    })
+                    .map(function(person){
+                        person.age = moment().diff(moment(person.birthday, "YYYY-MM-DD"), 'years');
+                        return person;
+                    })
+                    .filter(function(person){
+                        return !isNaN(person.age);
+                    });
+
+                movie_cast.filter(function(person){
+                    return person.gender === 2;
+                })
+                    .average(function(person) {
+                        return person.age;
+                    })
+                    .do(function(years){
+                        var male_avg = document.createElement('h3');
+                        male_avg.className = "male_avg";
+                        male_avg.textContent = years;
+                        movie_div.appendChild(male_avg);
+                    })
+                    .subscribe();
+
+                movie_cast.filter(function(person){
+                    return person.gender === 1;
+                })
+                    .average(function(person) {
+                        return person.age;
+                    })
+                    .do(function(years){
+                        var female_avg = document.createElement('span');
+                        female_avg.classname = "glyphicon glyphicon-female";
+                        var female_avg_header = document.createElement('h3');
+                        female_avg_header.className = "female_avg";
+                        female_avg_header.textContent = years;
+                        female_avg_header.appendChild(female_avg);
+                        movie_div.appendChild(female_avg_header);
+                    })
+                    .subscribe();
+            })
+            .catch(function (error) {
+                console.log(error);
+            });
+    }, false);
+
+
+
+</script>
+
+<!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+<!-- Latest compiled and minified JavaScript -->
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+</body>
+</html>
