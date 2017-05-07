@@ -83,14 +83,13 @@
     var ul = document.querySelector('ul');
 
     var responseStream = inputStream
-    //                .debounceTime(500)
         .map(function(e){
             return e.target.value;
         })
+        .debounce(500)
         .filter(function(value){
             return !value | value.length > 2;
         })
-        .distinctUntilChanged()
         .flatMap(function(value) {
             return value ? Rx.Observable.fromPromise(axios.get("https://api.themoviedb.org/3/search/movie?api_key=" + API_KEY + "&query=" + value)) : Rx.Observable.of({data: []});
         });
@@ -139,38 +138,41 @@
                     })
                     .filter(function(person){
                         return !isNaN(person.age);
-                    });
-
-                movie_cast.filter(function(person){
-                    return person.gender === 2;
-                })
-                    .average(function(person) {
-                        return person.age;
                     })
-                    .do(function(years){
-                        var male_avg = document.createElement('h3');
-                        male_avg.className = "male_avg";
-                        male_avg.textContent = years;
-                        movie_div.appendChild(male_avg);
+                    .groupBy(
+                        function (person) { return person.gender; }
+                    )
+                    .flatMap(function(group) {
+
+                        return group.average(function (person) {
+                            return person.age;
+                        })
+                        .map(function(averageAge){
+                            return {
+                                age: averageAge,
+                                gender: group.key
+                            };
+                        });
+                    })
+                    .do(function(average){
+                        console.log("average:",average);
+                        if(average.gender === 2) {
+                            var male_avg = document.createElement('h3');
+                            male_avg.className = "male_avg";
+                            male_avg.textContent = "gender:"+ average.gender + " age:" + average.age;
+                            movie_div.appendChild(male_avg);
+                        }else{
+                            var female_avg = document.createElement('span');
+                            female_avg.classname = "glyphicon glyphicon-female";
+                            var female_avg_header = document.createElement('h3');
+                            female_avg_header.className = "female_avg";
+                            female_avg_header.textContent = "gender:"+ average.gender + " age:" + average.age;
+                            female_avg_header.appendChild(female_avg);
+                            movie_div.appendChild(female_avg_header);
+                        }
                     })
                     .subscribe();
 
-                movie_cast.filter(function(person){
-                    return person.gender === 1;
-                })
-                    .average(function(person) {
-                        return person.age;
-                    })
-                    .do(function(years){
-                        var female_avg = document.createElement('span');
-                        female_avg.classname = "glyphicon glyphicon-female";
-                        var female_avg_header = document.createElement('h3');
-                        female_avg_header.className = "female_avg";
-                        female_avg_header.textContent = years;
-                        female_avg_header.appendChild(female_avg);
-                        movie_div.appendChild(female_avg_header);
-                    })
-                    .subscribe();
             })
             .catch(function (error) {
                 console.log(error);
